@@ -1,0 +1,97 @@
+name: Sign IPA and Create Manifest
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sign-ipa:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Decode and save the certificate
+        run: |
+          echo "${{ secrets.CERTIFICATE_P12 }}" | base64 --decode > certificate.p12
+          echo "${{ secrets.PROVISION_PROFILE }}" | base64 --decode > profile.mobileprovision
+
+      - name: Install dependencies
+        run: |
+          brew install fastlane
+          brew install plistbuddy
+
+      - name: Resign the IPA
+        run: |
+          fastlane sigh resign \
+          ${{ secrets.IPA_PATH }} \
+          --signing_identity "iPhone Distribution" \
+          --provisioning_profile profile.mobileprovision \
+          --cert_path certificate.p12 \
+          --cert_password ${{ secrets.CERT_PASSWORD }} \
+          --entitlements ./entitlements.plist
+
+      - name: Extract Metadata from IPA
+        run: |
+          mkdir -p Payload
+          unzip ${{ secrets.IPA_PATH }} -d Payload
+          APP_INFO_PLIST="Payload/*.app/Info.plist"
+
+          # Extract metadata using PlistBuddy
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" $APP_INFO_PLIST)
+          BUNDLE_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" $APP_INFO_PLIST)
+          APP_TITLE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" $APP_INFO_PLIST || /usr/libexec/PlistBuddy -c "Print :CFBundleName" $APP_INFO_PLIST)
+
+          echo "Bundle ID: $BUNDLE_ID"
+          echo "Version: $BUNDLE_VERSION"
+          echo "Title: $APP_TITLE"
+
+          # Generate distribution plist
+          APP_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/signed.ipa"
+          cat <<EOT > distribution.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+            <dict>
+              <key>items</key>
+              <array>
+                <dict>
+                  <key>assets</key>
+                  <array>
+                    <dict>
+                      <key>kind</key>
+                      <string>software-package</string>
+                      <key>url</key>
+                      <string>${APP_URL}</string>
+                    </dict>
+                  </array>
+                  <key>metadata</key>
+                  <dict>
+                    <key>bundle-identifier</key>
+                    <string>${BUNDLE_ID}</string>
+                    <key>bundle-version</key>
+                    <string>${BUNDLE_VERSION}</string>
+                    <key>kind</key>
+                    <string>software</string>
+                    <key>title</key>
+                    <string>${APP_TITLE}</string>
+                  </dict>
+                </dict>
+              </array>
+            </dict>
+          </plist>
+          EOT
+
+      - name: Set up GitHub Pages branch
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          mkdir -p gh-pages
+          cp signed.ipa gh-pages/
+          cp distribution.plist gh-pages/
+          cd gh-pages
+          git init
+          git remote add origin https://github.com/${{ github.repository }}
+          git checkout -b gh-pages
+          git add .
+          git commit -m "Deploy signed IPA and manifest to GitHub Pages"
+          git push --force origin gh-pages
