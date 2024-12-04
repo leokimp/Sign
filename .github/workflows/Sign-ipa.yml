@@ -26,7 +26,7 @@ jobs:
           --signing_identity "iPhone Distribution" \
           --provisioning_profile profile.mobileprovision \
           cert certificate.p12 \
-          --cert_password ${{ secrets.CERT_PASSWORD }} \
+          cert_password ${{ secrets.CERT_PASSWORD }} \
           --entitlements ./entitlements.plist
 
       - name: Extract Metadata from IPA
