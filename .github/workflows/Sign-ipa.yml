@@ -25,7 +25,7 @@ jobs:
           ${{ secrets.IPA_PATH }} \
           --signing_identity "iPhone Distribution" \
           --provisioning_profile profile.mobileprovision \
-          --cert_path certificate.p12 \
+          --cert certificate.p12 \
           --cert_password ${{ secrets.CERT_PASSWORD }} \
           --entitlements ./entitlements.plist
 
